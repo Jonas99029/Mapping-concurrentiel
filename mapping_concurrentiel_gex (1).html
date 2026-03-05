@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapping Concurrentiel — Pays de Gex 2026</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080b12;
+    --bg2: #0d1018;
+    --surface: #131720;
+    --border: rgba(255,255,255,0.07);
+    --text: #dde1f0;
+    --muted: #5a6275;
+    --accent: #f0c040;
+    --leader:       #f0c040;
+    --challenger:   #34d4a0;
+    --niche:        #a78bfa;
+    --digital:      #fb923c;
+    --mutualiste:   #60a5fa;
+    --bancassureur: #f472b6;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  .header {
+    padding: 14px 28px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+  .header-left { display:flex; align-items:baseline; gap:14px; }
+  .eyebrow { font-size:9px; letter-spacing:0.28em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  h1 { font-family:'Syne',sans-serif; font-size:19px; font-weight:800; color:#fff; white-space:nowrap; }
+  h1 em { color:var(--accent); font-style:normal; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:5px 12px; align-items:center; }
+  .legend-label { font-size:9px; letter-spacing:0.15em; text-transform:uppercase; color:var(--muted); margin-right:2px; }
+  .legend-item {
+    display:flex; align-items:center; gap:5px;
+    font-size:11px; color:rgba(221,225,240,0.6);
+    cursor:pointer; padding:3px 9px 3px 6px;
+    border-radius:20px; border:1px solid transparent;
+    transition:all 0.2s; white-space:nowrap; user-select:none;
+  }
+  .legend-item:hover { color:rgba(221,225,240,0.95); border-color:rgba(255,255,255,0.15); background:rgba(255,255,255,0.05); }
+  .legend-item.active { color:#fff; }
+  .legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  /* BODY */
+  .body { display:grid; grid-template-columns:1fr 296px; flex:1; min-height:0; }
+
+  /* CHART */
+  .chart-wrap { position:relative; padding:14px; min-height:0; overflow:hidden; }
+  svg#chart { width:100%; height:100%; overflow:visible; }
+
+  /* SVG styles */
+  .q-title {
+    font-family:'Syne',sans-serif; font-size:10.5px; font-weight:700;
+    letter-spacing:0.1em; text-transform:uppercase; pointer-events:none; user-select:none;
+  }
+  .q-sub {
+    font-family:'DM Sans',sans-serif; font-size:8.5px; font-weight:400;
+    letter-spacing:0.06em; pointer-events:none; user-select:none;
+  }
+  .axis-title {
+    font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600;
+    fill:rgba(200,210,230,0.5); pointer-events:none;
+  }
+  .axis-end {
+    font-family:'DM Sans',sans-serif; font-size:9px; font-weight:500;
+    letter-spacing:0.1em; text-transform:uppercase; pointer-events:none;
+    fill:rgba(200,210,230,0.3);
+  }
+  .grid-line { stroke:rgba(255,255,255,0.04); stroke-width:1; }
+  .mid-line  { stroke:rgba(255,255,255,0.12); stroke-width:1; stroke-dasharray:5 5; }
+  .axis-line { stroke:rgba(255,255,255,0.2); stroke-width:1.5; }
+
+  .bubble-group { cursor:pointer; }
+  .bubble-group.dimmed { opacity:0.08; pointer-events:none; }
+  .bubble-group.selected .bubble-circle { stroke-width:3 !important; }
+
+  .bubble-inner-label {
+    font-family:'Syne',sans-serif; font-weight:800;
+    fill:rgba(0,0,0,0.9); pointer-events:none;
+    text-anchor:middle; dominant-baseline:middle;
+  }
+  .ext-label-line1 {
+    font-family:'Syne',sans-serif; font-weight:700;
+    pointer-events:none;
+  }
+  .ext-label-line2 {
+    font-family:'DM Sans',sans-serif; font-weight:400;
+    pointer-events:none;
+  }
+  .leader-line { stroke-width:1; stroke-dasharray:3 3; pointer-events:none; opacity:0.45; }
+
+  @keyframes pulse {
+    0%   { r:28px; opacity:0.55; }
+    100% { r:62px; opacity:0; }
+  }
+  .pulse { animation:pulse 2.5s ease-out infinite; fill:none; stroke-width:2; }
+
+  /* TOOLTIP */
+  #tooltip {
+    position:fixed; pointer-events:none; z-index:999;
+    opacity:0; transition:opacity 0.15s; min-width:210px; max-width:265px;
+  }
+  #tooltip.show { opacity:1; }
+  .tt {
+    background:rgba(8,11,18,0.97); border:1px solid rgba(255,255,255,0.13);
+    border-radius:10px; padding:12px 14px;
+    backdrop-filter:blur(16px); box-shadow:0 8px 32px rgba(0,0,0,0.65);
+  }
+  .tt-name { font-family:'Syne',sans-serif; font-size:13px; font-weight:800; color:#fff; margin-bottom:2px; }
+  .tt-cat  { font-size:9px; letter-spacing:0.18em; text-transform:uppercase; font-weight:700; margin-bottom:9px; }
+  .tt-row  { display:flex; justify-content:space-between; font-size:10px; color:rgba(221,225,240,0.55); margin-bottom:2px; }
+  .tt-row span:last-child { color:var(--text); font-weight:600; }
+  .tt-bar  { height:3px; background:rgba(255,255,255,0.07); border-radius:2px; margin-bottom:7px; overflow:hidden; }
+  .tt-bar-fill { height:100%; border-radius:2px; }
+  .tt-rating { font-size:10px; margin-bottom:2px; }
+  .tt-hint   { margin-top:8px; font-size:9px; color:var(--muted); }
+
+  /* SIDEBAR */
+  .sidebar {
+    border-left:1px solid var(--border); background:var(--bg2);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  .sidebar-head {
+    padding:14px 16px 10px; border-bottom:1px solid var(--border);
+    flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
+  }
+  .sidebar-head-title {
+    font-family:'Syne',sans-serif; font-size:9.5px; font-weight:700;
+    letter-spacing:0.2em; text-transform:uppercase; color:var(--muted);
+  }
+  .sidebar-hint { font-size:9px; color:var(--muted); opacity:0.55; }
+
+  .detail-scroll {
+    flex:1; overflow-y:auto; padding:14px;
+    scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.07) transparent;
+  }
+  .empty-state {
+    height:100%; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:10px; text-align:center;
+  }
+  .empty-icon { font-size:26px; opacity:0.18; }
+  .empty-text { font-size:11px; color:var(--muted); line-height:1.7; }
+
+  /* Detail card */
+  .d-name { font-family:'Syne',sans-serif; font-size:15px; font-weight:800; color:#fff; line-height:1.2; margin-bottom:5px; }
+  .d-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:9px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase;
+    padding:3px 9px; border-radius:20px; margin-bottom:12px;
+  }
+  .d-score-row { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:12px; }
+  .d-score {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:7px; padding:8px 10px;
+  }
+  .d-score-lbl { font-size:9px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+  .d-score-val { font-family:'Syne',sans-serif; font-size:19px; font-weight:800; line-height:1; margin-bottom:4px; }
+  .d-bar { height:3px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden; }
+  .d-bar-fill { height:100%; border-radius:2px; }
+
+  .d-section { margin-bottom:11px; }
+  .d-section-title {
+    font-size:9px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:5px;
+    display:flex; align-items:center; gap:7px;
+  }
+  .d-section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+  .d-text { font-size:11px; line-height:1.65; color:rgba(221,225,240,0.72); }
+  .d-pv   { font-size:11px; line-height:1.65; color:rgba(221,225,240,0.9); font-style:italic; }
+  .d-tags { display:flex; flex-wrap:wrap; gap:3px; }
+  .d-tag  { font-size:9px; padding:2px 7px; border-radius:3px; border:1px solid var(--border); color:var(--muted); }
+  .d-stars { color:var(--accent); letter-spacing:1px; }
+  .d-cta  {
+    margin-top:12px; padding:8px 11px;
+    border-radius:6px; font-size:9.5px; font-weight:700;
+    letter-spacing:0.1em; text-transform:uppercase;
+  }
+
+  /* GUIDE */
+  .guide {
+    padding:7px 28px; border-top:1px solid var(--border);
+    background:rgba(255,255,255,0.015);
+    display:flex; align-items:center; gap:20px; flex-shrink:0; flex-wrap:wrap;
+  }
+  .guide-item { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--muted); white-space:nowrap; }
+  .guide-sep  { width:1px; height:14px; background:var(--border); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="eyebrow">Assurance · Pays de Gex · 2026</div>
+    <h1>Mapping <em>Concurrentiel</em></h1>
+  </div>
+  <div class="legend">
+    <span class="legend-label">Filtrer :</span>
+    <div class="legend-item" data-cat="leader"       data-color="#f0c040"><div class="legend-dot" style="background:#f0c040"></div>Acteur Pivot</div>
+    <div class="legend-item" data-cat="challenger"   data-color="#34d4a0"><div class="legend-dot" style="background:#34d4a0"></div>Challenger</div>
+    <div class="legend-item" data-cat="niche"        data-color="#a78bfa"><div class="legend-dot" style="background:#a78bfa"></div>Spécialiste</div>
+    <div class="legend-item" data-cat="digital"      data-color="#fb923c"><div class="legend-dot" style="background:#fb923c"></div>Disrupteur Digital</div>
+    <div class="legend-item" data-cat="bancassureur" data-color="#f472b6"><div class="legend-dot" style="background:#f472b6"></div>Bancassureur</div>
+    <div class="legend-item" data-cat="mutualiste"   data-color="#60a5fa"><div class="legend-dot" style="background:#60a5fa"></div>Mutualiste en Déclin</div>
+  </div>
+</div>
+
+<div class="body">
+  <div class="chart-wrap" id="chartWrap">
+    <svg id="chart"></svg>
+  </div>
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <div class="sidebar-head-title">Fiche Acteur</div>
+      <div class="sidebar-hint">cliquez sur une bulle</div>
+    </div>
+    <div class="detail-scroll" id="detailPanel">
+      <div class="empty-state">
+        <div class="empty-icon">◉</div>
+        <div class="empty-text">Survolez une bulle<br>pour un aperçu rapide<br><strong>Cliquez</strong> pour la fiche complète</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="guide">
+  <div class="guide-item">
+    <svg width="32" height="12"><circle cx="6" cy="6" r="5.5" fill="rgba(255,255,255,0.12)"/><circle cx="24" cy="6" r="3" fill="rgba(255,255,255,0.12)"/></svg>
+    Taille de bulle = ancienneté / impact perçu
+  </div>
+  <div class="guide-sep"></div>
+  <div class="guide-item">
+    <svg width="22" height="12"><line x1="0" y1="6" x2="22" y2="6" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-dasharray="3 3"/></svg>
+    Trait pointillé = connexion bulle → nom
+  </div>
+  <div class="guide-sep"></div>
+  <div class="guide-item">◄ Bas gauche : acteurs traditionnels peu spécialisés</div>
+  <div class="guide-sep"></div>
+  <div class="guide-item">Haut droite : experts digitaux & patrimoniaux premium ►</div>
+</div>
+
+<div id="tooltip"><div class="tt" id="ttInner"></div></div>
+
+<script>
+const ACTORS = [
+  {
+    id:"mma", name:"MMA Brys Cansell", shortName:"MMA", subName:"Brys Cansell",
+    category:"leader", x:5.5, y:6.5, size:28,
+    rating:"~3.5/5", locations:"Ferney-Voltaire · St-Genis-Pouilly · Gex", labelSide:"right",
+    forceText:"3 agences sur les nœuds stratégiques frontaliers. Expertise CMU/LAMal. Remises multi-équipement jusqu'à 20%. Mobilité terrain des dirigeants. Maîtrise de 4 langues.",
+    weakText:"Primes habitation/auto 20-30% au-dessus du marché dense. Absence d'outils digitaux interactifs propres. Image dominée par l'IARD de masse.",
+    pvText:"Agent général de «conciergerie assurantielle» : présence multi-sites, expertise humaine transfrontalière et relation de confiance de proximité.",
+    tags:["IARD","Santé frontalier","PER","Multi-équipement","Covéa"], cta:"Acteur Pivot du Marché"
+  },
+  {
+    id:"allianz_v", name:"Allianz — T. Valette", shortName:"Allianz", subName:"T. Valette",
+    category:"challenger", x:6.8, y:7.6, size:24,
+    rating:"4.8/5 (72 avis)", locations:"Ferney · Gex · St-Genis · Divonne", labelSide:"right",
+    forceText:"Note Google 4.8/5 exceptionnelle. Certification RSE AFNOR. 4 implantations locales. Capital humain exceptionnel (accueil, empathie, réactivité).",
+    weakText:"Surprimes PPRI +30-50%. Processus d'indemnisation bureaucratiques sur sinistres lourds. Rigidités du siège.",
+    pvText:"Challenger premium conjuguant excellence relationnelle, engagement ESG et réactivité administrative — référence pour familles et cadres installés.",
+    tags:["RSE AFNOR","Premium","Téléconsultation","ESG","Multi-sites"], cta:"Challenger n°1"
+  },
+
+  {
+    id:"axa_morvan", name:"AXA Prévoyance & Patrimoine", shortName:"AXA", subName:"R. Morvan — Ferney",
+    category:"niche", x:4.5, y:9.5, size:20,
+    rating:"4.5/5 (Opinion System)", locations:"Ferney-Voltaire", labelSide:"left",
+    forceText:"Abandon volontaire de l'IARD. Expert Loi Madelin, PER, PEE, PERCO, optimisation successorale. Présence AXA dans 50+ pays.",
+    weakText:"Franchises climatiques parmi les plus élevées (~380€). Hausses annuelles 5-8% favorisant le churn.",
+    pvText:"«Architecte fiscal et patrimonial» exclusif pour cadres supérieurs — abandon délibéré de l'IARD au profit de la haute valeur ajoutée.",
+    tags:["Loi Madelin","Gestion de fortune","PER","TNS","Prévoyance"], cta:"Spécialiste Niche Premium"
+  },
+  {
+    id:"axa_terrien", name:"AXA — Benoit Terrien", shortName:"AXA", subName:"B. Terrien — Divonne",
+    category:"niche", x:3.2, y:8.6, size:19,
+    rating:"Non communiqué", locations:"Divonne-les-Bains", labelSide:"right",
+    forceText:"Réputation d'expert «historique» à Divonne. Réseau de prescription dense (notaires, agents immobiliers de luxe). Captation des multi-détenteurs haut panier (Auto + Habitation + Prévoyance + Santé).",
+    weakText:"Approche institutionnelle pouvant paraître rigide. Faible réactivité digitale face aux nouveaux frontaliers. Zone d'influence limitée à Divonne.",
+    pvText:"«Force tranquille» d'AXA sur la clientèle de prestige à Divonne : propriétaires de standing, collectionneurs et cadres dirigeants de multinationales basées à Nyon ou Genève.",
+    tags:["Prestige","Patrimoine","Divonne","Multi-détenteurs","Réseau notaires"], cta:"Institutionnel Prestige Local"
+  },
+  {
+    id:"alp", name:"ALP Assurances", shortName:"ALP", subName:"Assurances",
+    category:"digital", x:9.0, y:7.5, size:23,
+    rating:"Non communiqué", locations:"Gex (35 rue A. Reverchon)", labelSide:"right",
+    forceText:"Arsenal 2026 : comparateur CMU/LAMal, convertisseur CHF brut/net, simulateur télétravail 40%, chatbot ALP-GPT 24h/24. Machine d'acquisition de leads qualifiés.",
+    weakText:"Moins de visibilité physique. Dépendance au trafic digital. Conseil gratuit = perception de valeur réduite.",
+    pvText:"Disrupteur asymétrique : commoditise le conseil réglementaire via IA, capte le primo-arrivant en 2 min à 23h, puis cross-sell sur produits à forte marge.",
+    tags:["ALP-GPT","CMU/LAMal 2026","Lead-gen","Fintech","Courtier indépendant"], cta:"Disrupteur Technologique"
+  },
+  {
+    id:"gan", name:"GAN Assurances", shortName:"GAN", subName:"Assurances",
+    category:"mutualiste", x:3.2, y:5.2, size:20,
+    rating:"3.3/5 (32 avis)", locations:"Gex · Divonne-les-Bains", labelSide:"left",
+    forceText:"Présence locale depuis 2007. Équipe bilingue. Panel complet IARD + bancassurance. Avantages familles (gratuité à partir du 3ème enfant).",
+    weakText:"Note Google 3.3/5. Indisponibilité des conseillers. Délais interminables. Image nationale dégradée.",
+    pvText:"Acteur historique avec clientèle fidèle mais victime d'une friction croissante et d'une image nationale en berne.",
+    tags:["Historique","Bilingue","IARD","Bancassurance"], cta:"Acteur Historique Fragilisé"
+  },
+  {
+    id:"gmf", name:"GMF", shortName:"GMF", subName:"Ferney-Voltaire",
+    category:"mutualiste", x:2.3, y:3.8, size:17,
+    rating:"2.1/5 Google (local)", locations:"Ferney-Voltaire", labelSide:"left",
+    forceText:"Marque nationale forte (4.2/5, 18 000 avis). Tarifs attractifs pour fonctionnaires. Réseau national de soins.",
+    weakText:"Effondrement local : 2.1/5. Crise RH grave (turnover, pression 6j/7). Tarifs seniors excessifs. Délais de carence 6 mois.",
+    pvText:"Mutuelle nationale en crise d'image locale sévère, incapable de délivrer le conseil personnalisé exigé par le marché gessien.",
+    tags:["Mutuelle","Covéa","Fonctionnaires"], cta:"Mutualiste en Crise"
+  },
+  {
+    id:"maaf", name:"MAAF", shortName:"MAAF", subName:"Ferney-Voltaire",
+    category:"mutualiste", x:2.8, y:3.0, size:16,
+    rating:"Non disponible (local)", locations:"Ferney-Voltaire", labelSide:"right",
+    forceText:"Appartenance groupe Covéa. Tarifs accessibles sur IARD standard. Réseau national.",
+    weakText:"Gestion sinistres catastrophique (18 mois de retard, refus d'indemnisation sécheresse). Résiliations abusives.",
+    pvText:"Distributeur IARD standardisé en perte accélérée de clients à haut potentiel.",
+    tags:["Mutuelle","Covéa","IARD standard","En déclin"], cta:"Mutualiste en Déclin"
+  },
+  {
+    id:"credit_agricole", name:"Crédit Agricole (Pacifica)", shortName:"Crédit", subName:"Agricole",
+    category:"bancassureur", x:6.2, y:5.0, size:26,
+    rating:"Non communiqué", locations:"Gex · Saint-Genis · Ferney-Voltaire", labelSide:"left",
+    forceText:"Leader du volume sur l'assurance de prêt (ADE) et l'habitation. Verrouille le client dès la signature de l'hypothèque. Réseau d'agences dense sur tout le Pays de Gex.",
+    weakText:"Contrats ADE souvent surtaxés, vulnérables à la Loi Lemoine. Conseil en assurance secondaire vs. cœur de métier bancaire. Peu d'expertise sur la spécificité transfrontalière.",
+    pvText:"Bancassureur dominant par le flux immobilier : capte l'assurance habitation et emprunteur à la source, au moment de la signature du crédit.",
+    tags:["Bancassurance","ADE","Prêt immobilier","Pacifica","Loi Lemoine"], cta:"Leader du Flux Immobilier"
+  },
+  {
+    id:"credit_mutuel", name:"Crédit Mutuel (ACM)", shortName:"Crédit", subName:"Mutuel",
+    category:"bancassureur", x:6.8, y:5.8, size:22,
+    rating:"Non communiqué", locations:"Saint-Genis-Pouilly · Ferney-Voltaire", labelSide:"right",
+    forceText:"Packs Frontaliers intégrant santé + prévoyance dans l'offre bancaire. Fidélisation par gratuité temporaire de services de change. Clientèle captive difficile à déloger.",
+    weakText:"Offre packagée peu modulable. Expertise patrimoniale transfrontalière limitée face aux spécialistes. Taux de change non optimaux sur le long terme.",
+    pvText:"Bancassureur agressif sur les «Packs Frontaliers» : intègre l'assurance santé et la prévoyance directement dans l'offre bancaire, rendant le client captif.",
+    tags:["Bancassurance","Pack Frontalier","Change CHF/€","Santé","Captivité client"], cta:"Bancassureur Pack Frontalier"
+  },
+  {
+    id:"banque_pop", name:"Banque Populaire (AURA)", shortName:"Banque", subName:"Populaire",
+    category:"bancassureur", x:5.8, y:4.2, size:19,
+    rating:"Non communiqué", locations:"Pays de Gex", labelSide:"left",
+    forceText:"Très agressif sur les Professionnels et PME. Offres de leasing (LOA/LLD) couplées à l'assurance de flotte. Concurrent direct sur le marché entreprises de Benjamin Brys.",
+    weakText:"Moins présent sur les particuliers frontaliers. Expertise transfrontalière inférieure aux courtiers spécialisés. Offre pro moins flexible que les agents généraux.",
+    pvText:"Concurrent direct de MMA sur le segment Professionnels/PME, via des offres intégrées leasing + flotte qui chassent sur les mêmes terres.",
+    tags:["Bancassurance","Professionnels","PME","Flotte auto","LOA/LLD"], cta:"Concurrent Direct Segment Pro"
+  },
+  {
+    id:"generali", name:"Generali — Gilles & Associés", shortName:"Generali", subName:"Gilles & Associés",
+    category:"niche", x:5.8, y:9.2, size:20,
+    rating:"Non communiqué", locations:"Gex · Ferney-Voltaire", labelSide:"left",
+    forceText:"Acteur historique redoutable sur la Protection Sociale des Dirigeants. Contrats de retraite Madelin et prévoyance collective reconnus comme références. Fidélité clientèle forte.",
+    weakText:"Visibilité digitale limitée. Positionnement très spécialisé excluant les particuliers courants. Gamme IARD moins compétitive.",
+    pvText:"Référence locale sur la prévoyance collective et les retraites Madelin pour dirigeants — MMA doit contrer via l'expertise technique de Pierre Cansell.",
+    tags:["Prévoyance collective","Loi Madelin","Dirigeants","Retraite","TNS"], cta:"Spécialiste Protection Dirigeants"
+  },
+  {
+    id:"helvetia", name:"Helvetia Assurances", shortName:"Helvetia", subName:"Assurances",
+    category:"niche", x:3.8, y:7.2, size:16,
+    rating:"Non communiqué", locations:"Pays de Gex (axe franco-suisse)", labelSide:"right",
+    forceText:"Capital confiance fort auprès des résidents liés à la Confédération suisse. Expertise reconnue sur les risques techniques (BTP) et le transport. Origine suisse = légitimité transfrontalière.",
+    weakText:"Faible notoriété grand public en France. Distribution peu digitalisée. Gamme limitée sur les produits de masse (auto, habitation standard).",
+    pvText:"Assureur suisse discret mais légitime sur les risques techniques et BTP, bénéficiant d'un capital confiance naturel auprès des résidents à fort ancrage helvétique.",
+    tags:["Suisse","BTP","Risques techniques","Transport","Transfrontalier"], cta:"Spécialiste Risques Techniques"
+  }
+];
+
+const CAT_COLORS = {
+  leader:"#f0c040", challenger:"#34d4a0", niche:"#a78bfa", digital:"#fb923c",
+  bancassureur:"#f472b6", mutualiste:"#60a5fa"
+};
+const CAT_LABELS = {
+  leader:"Acteur Pivot", challenger:"Challenger Premium", niche:"Spécialiste Niche",
+  digital:"Disrupteur Digital", bancassureur:"Bancassureur", mutualiste:"Mutualiste en Déclin"
+};
+
+const QUADRANTS = [
+  { qx:0, qy:5, qw:5, qh:5, label:"DISRUPTEURS AGILES",    sub:"Digital fort + Patrimoine moyen",   col:"rgba(251,146,60,0.055)",  tc:"rgba(251,146,60,0.5)",   corner:"tl" },
+  { qx:5, qy:5, qw:5, qh:5, label:"EXPERTS PREMIUM",       sub:"Digital + Patrimoine élevés",        col:"rgba(167,139,250,0.055)", tc:"rgba(167,139,250,0.5)",  corner:"tr" },
+  { qx:0, qy:0, qw:5, qh:5, label:"ACTEURS EN DIFFICULTÉ", sub:"Peu digital, peu spécialisé",         col:"rgba(96,165,250,0.045)",  tc:"rgba(96,165,250,0.42)",  corner:"bl" },
+  { qx:5, qy:0, qw:5, qh:5, label:"ACTEURS HISTORIQUES",   sub:"Traditionnels + expertise patrimoniale", col:"rgba(240,192,64,0.045)",tc:"rgba(240,192,64,0.42)", corner:"br" },
+];
+
+/* ─── D3 ─── */
+const svgEl = d3.select("#chart");
+let selActor = null;
+
+function render() {
+  const wrap = document.getElementById("chartWrap");
+  const W = wrap.clientWidth - 28;
+  const H = wrap.clientHeight - 28;
+  svgEl.attr("viewBox",`0 0 ${W} ${H}`).selectAll("*").remove();
+
+  const PAD = { l:58, r:20, t:20, b:52 };
+  const ix=PAD.l, iy=PAD.t, iw=W-PAD.l-PAD.r, ih=H-PAD.t-PAD.b;
+
+  const xs = d3.scaleLinear().domain([0,10]).range([ix, ix+iw]);
+  const ys = d3.scaleLinear().domain([0,10]).range([iy+ih, iy]);
+
+  const defs = svgEl.append("defs");
+  const glowF = defs.append("filter").attr("id","glow").attr("x","-50%").attr("y","-50%").attr("width","200%").attr("height","200%");
+  glowF.append("feGaussianBlur").attr("stdDeviation","5").attr("result","blur");
+  const fm = glowF.append("feMerge");
+  fm.append("feMergeNode").attr("in","blur");
+  fm.append("feMergeNode").attr("in","SourceGraphic");
+
+  // ── QUADRANT BGs ──
+  QUADRANTS.forEach(q => {
+    const rx = xs(q.qx), rw = xs(q.qx+q.qw)-xs(q.qx);
+    const ry = ys(q.qy+q.qh), rh = ys(q.qy)-ys(q.qy+q.qh);
+
+    svgEl.append("rect").attr("x",rx).attr("y",ry).attr("width",rw).attr("height",rh)
+      .attr("fill",q.col).attr("rx",2);
+
+    const lp = 14;
+    const tx = q.corner.includes("r") ? rx+rw-lp : rx+lp;
+    const ty = q.corner.includes("t") ? ry+lp+12 : ry+rh-lp-12;
+    const anchor = q.corner.includes("r") ? "end" : "start";
+
+    svgEl.append("text").attr("class","q-title")
+      .attr("x",tx).attr("y",ty).attr("text-anchor",anchor).attr("fill",q.tc).text(q.label);
+    svgEl.append("text").attr("class","q-sub")
+      .attr("x",tx).attr("y",ty+13).attr("text-anchor",anchor).attr("fill",q.tc).text(q.sub);
+  });
+
+  // ── GRID ──
+  [2,4,6,8].forEach(t => {
+    svgEl.append("line").attr("class","grid-line").attr("x1",xs(t)).attr("y1",iy).attr("x2",xs(t)).attr("y2",iy+ih);
+    svgEl.append("line").attr("class","grid-line").attr("x1",ix).attr("y1",ys(t)).attr("x2",ix+iw).attr("y2",ys(t));
+  });
+  svgEl.append("line").attr("class","mid-line").attr("x1",xs(5)).attr("y1",iy).attr("x2",xs(5)).attr("y2",iy+ih);
+  svgEl.append("line").attr("class","mid-line").attr("x1",ix).attr("y1",ys(5)).attr("x2",ix+iw).attr("y2",ys(5));
+
+  // ── AXES ──
+  svgEl.append("line").attr("class","axis-line").attr("x1",ix).attr("y1",iy+ih).attr("x2",ix+iw).attr("y2",iy+ih);
+  svgEl.append("line").attr("class","axis-line").attr("x1",ix).attr("y1",iy).attr("x2",ix).attr("y2",iy+ih);
+
+  // Axis labels
+  svgEl.append("text").attr("class","axis-title").attr("x",ix+iw/2).attr("y",iy+ih+36).attr("text-anchor","middle").text("Maîtrise Digitale & Innovation");
+  svgEl.append("text").attr("class","axis-end").attr("x",ix).attr("y",iy+ih+36).attr("text-anchor","start").text("Traditionnel ◄");
+  svgEl.append("text").attr("class","axis-end").attr("x",ix+iw).attr("y",iy+ih+36).attr("text-anchor","end").text("► Avant-garde");
+
+  const ytx = ix-44, yty = iy+ih/2;
+  svgEl.append("text").attr("class","axis-title").attr("transform",`translate(${ytx},${yty}) rotate(-90)`).attr("text-anchor","middle").text("Expertise Patrimoniale & Valeur Ajoutée");
+  svgEl.append("text").attr("class","axis-end").attr("transform",`translate(${ytx-1},${iy+ih}) rotate(-90)`).attr("text-anchor","start").text("Basique ◄");
+  svgEl.append("text").attr("class","axis-end").attr("transform",`translate(${ytx-1},${iy}) rotate(-90)`).attr("text-anchor","end").text("► Premium");
+
+  // ── BUBBLES ──
+  ACTORS.forEach(a => {
+    const cx=xs(a.x), cy=ys(a.y);
+    const r = a.size * Math.min(iw,ih) / 820;
+    const col = CAT_COLORS[a.category];
+    const isRight = a.labelSide === "right";
+
+    const g = svgEl.append("g").attr("class","bubble-group").attr("id","bg-"+a.id);
+
+    // Pulse for MMA
+    if (a.id === "mma") {
+      g.append("circle").attr("class","pulse").attr("cx",cx).attr("cy",cy).attr("r",r+4).attr("stroke",col);
+    }
+
+    // Outer glow halo
+    g.append("circle").attr("cx",cx).attr("cy",cy).attr("r",r*1.5)
+      .attr("fill",col).attr("fill-opacity",0.09).attr("stroke","none");
+
+    // Main bubble
+    g.append("circle").attr("class","bubble-circle")
+      .attr("cx",cx).attr("cy",cy).attr("r",r)
+      .attr("fill",col).attr("fill-opacity", a.id==="mma" ? 0.88 : 0.72)
+      .attr("stroke",col).attr("stroke-width", a.id==="mma" ? 2.5 : 1.5)
+      .attr("filter","url(#glow)");
+
+    // ── INITIALS inside bubble ──
+    const initials = {
+      mma:"MMA", allianz_v:"ALZ", allianz_m:"ALZ", axa_morvan:"AXA", axa_terrien:"AXA",
+      alp:"ALP", gan:"GAN", gmf:"GMF", maaf:"MAF",
+      credit_agricole:"CA", credit_mutuel:"CM", banque_pop:"BP",
+      generali:"GEN", helvetia:"HEL"
+    }[a.id] || "";
+    if (r > 15) {
+      g.append("text").attr("class","bubble-inner-label")
+        .attr("x",cx).attr("y",cy)
+        .attr("font-size",Math.max(8, r*0.42))
+        .text(initials);
+    }
+
+    // ── EXTERNAL LABEL ──
+    // leader line
+    const lineStartX = isRight ? cx+r+2  : cx-r-2;
+    const lineEndX   = isRight ? cx+r+18 : cx-r-18;
+    g.append("line").attr("class","leader-line")
+      .attr("x1",lineStartX).attr("y1",cy)
+      .attr("x2",lineEndX).attr("y2",cy)
+      .attr("stroke",col);
+
+    // Label anchor
+    const labelX = isRight ? cx+r+22 : cx-r-22;
+    const anchor  = isRight ? "start" : "end";
+    const fs1 = Math.max(10, r*0.42);
+    const fs2 = Math.max(8.5, r*0.32);
+
+    g.append("text").attr("class","ext-label-line1")
+      .attr("x",labelX).attr("y",cy-(fs2*0.6))
+      .attr("text-anchor",anchor)
+      .attr("dominant-baseline","auto")
+      .attr("font-size",fs1)
+      .attr("fill",col)
+      .text(a.shortName);
+
+    g.append("text").attr("class","ext-label-line2")
+      .attr("x",labelX).attr("y",cy+(fs1*0.55))
+      .attr("text-anchor",anchor)
+      .attr("dominant-baseline","auto")
+      .attr("font-size",fs2)
+      .attr("fill","rgba(221,225,240,0.5)")
+      .text(a.subName);
+
+    // Events
+    g.on("mouseenter",(event)=>showTooltip(event,a))
+     .on("mousemove", (event)=>moveTooltip(event))
+     .on("mouseleave", hideTooltip)
+     .on("click",()=>{ selActor=a; showDetail(a); highlightBubble(a.id); });
+  });
+
+  // Animate in
+  svgEl.selectAll(".bubble-group").style("opacity",0)
+    .each(function(_,i) {
+      d3.select(this).transition().delay(i*55).duration(440).ease(d3.easeCubicOut).style("opacity",1);
+    });
+
+  if (selActor) highlightBubble(selActor.id);
+}
+
+/* ─── TOOLTIP ─── */
+const tooltip   = document.getElementById("tooltip");
+const ttInner   = document.getElementById("ttInner");
+
+function showTooltip(event, a) {
+  const col = CAT_COLORS[a.category];
+  const rn = parseRating(a.rating);
+  let starsLine = "";
+  if (rn) {
+    const full=Math.round(rn);
+    starsLine = `<div class="tt-rating"><span class="d-stars">${"★".repeat(full)}${"☆".repeat(5-full)}</span> <span style="color:var(--muted);font-size:9px">${a.rating}</span></div>`;
+  }
+  ttInner.innerHTML = `
+    <div class="tt-name">${a.name}</div>
+    <div class="tt-cat" style="color:${col}">${CAT_LABELS[a.category]}</div>
+    ${starsLine}
+    <div class="tt-row"><span>⚡ Digital</span><span>${a.x}/10</span></div>
+    <div class="tt-bar"><div class="tt-bar-fill" style="width:${a.x*10}%;background:${col}"></div></div>
+    <div class="tt-row"><span>💎 Patrimoine</span><span>${a.y}/10</span></div>
+    <div class="tt-bar"><div class="tt-bar-fill" style="width:${a.y*10}%;background:${col}"></div></div>
+    <div class="tt-row"><span>📍</span><span style="font-size:9px">${a.locations}</span></div>
+    <div class="tt-hint">Cliquez pour la fiche complète →</div>
+  `;
+  tooltip.classList.add("show");
+  moveTooltip(event);
+}
+function moveTooltip(event) {
+  const tw = tooltip.offsetWidth||220, th = tooltip.offsetHeight||180;
+  tooltip.style.left = Math.min(event.clientX+16, window.innerWidth-tw-8)+"px";
+  tooltip.style.top  = Math.min(event.clientY-16, window.innerHeight-th-8)+"px";
+}
+function hideTooltip() { tooltip.classList.remove("show"); }
+
+/* ─── DETAIL ─── */
+function parseRating(str) {
+  const m = str.match(/(\d+\.?\d*)\s*\/\s*5/);
+  return m ? parseFloat(m[1]) : null;
+}
+function showDetail(a) {
+  const col = CAT_COLORS[a.category];
+  const rn = parseRating(a.rating);
+  const starsHtml = rn
+    ? `<div style="display:flex;align-items:center;gap:7px;font-size:11px"><span class="d-stars">${"★".repeat(Math.round(rn))}${"☆".repeat(5-Math.round(rn))}</span><span style="font-size:10px;color:var(--muted)">${a.rating}</span></div>`
+    : `<div style="font-size:10px;color:var(--muted)">${a.rating}</div>`;
+
+  document.getElementById("detailPanel").innerHTML = `
+    <div class="d-name">${a.name}</div>
+    <div class="d-badge" style="background:${col}1a;color:${col};border:1px solid ${col}33">
+      <span style="width:7px;height:7px;border-radius:50%;background:${col};display:inline-block;flex-shrink:0"></span>
+      ${CAT_LABELS[a.category]}
+    </div>
+    <div class="d-section">
+      <div class="d-section-title">Localisation</div>
+      <div class="d-text">📍 ${a.locations}</div>
+    </div>
+    <div class="d-section">
+      <div class="d-section-title">Avis clients</div>
+      ${starsHtml}
+    </div>
+    <div class="d-score-row">
+      <div class="d-score">
+        <div class="d-score-lbl">⚡ Digital</div>
+        <div class="d-score-val" style="color:${col}">${a.x.toFixed(1)}<span style="font-size:11px;opacity:0.4">/10</span></div>
+        <div class="d-bar"><div class="d-bar-fill" style="width:${a.x*10}%;background:${col}"></div></div>
+      </div>
+      <div class="d-score">
+        <div class="d-score-lbl">💎 Patrimoine</div>
+        <div class="d-score-val" style="color:${col}">${a.y.toFixed(1)}<span style="font-size:11px;opacity:0.4">/10</span></div>
+        <div class="d-bar"><div class="d-bar-fill" style="width:${a.y*10}%;background:${col}"></div></div>
+      </div>
+    </div>
+    <div class="d-section">
+      <div class="d-section-title">✅ Forces</div>
+      <div class="d-text">${a.forceText}</div>
+    </div>
+    <div class="d-section">
+      <div class="d-section-title">⚠️ Faiblesses</div>
+      <div class="d-text">${a.weakText}</div>
+    </div>
+    <div class="d-section">
+      <div class="d-section-title">💡 Proposition de valeur</div>
+      <div class="d-pv">${a.pvText}</div>
+    </div>
+    <div class="d-section">
+      <div class="d-section-title">Tags</div>
+      <div class="d-tags">${a.tags.map(t=>`<span class="d-tag">${t}</span>`).join("")}</div>
+    </div>
+    <div class="d-cta" style="background:${col}15;border:1px solid ${col}30;color:${col}">→ ${a.cta}</div>
+  `;
+}
+function highlightBubble(id) {
+  svgEl.selectAll(".bubble-group").each(function() {
+    d3.select(this).classed("selected", this.id === "bg-"+id);
+  });
+}
+
+/* ─── LEGEND FILTER ─── */
+let activeFilters = new Set();
+
+function applyFilters() {
+  const hasFilt = activeFilters.size > 0;
+  ACTORS.forEach(a => {
+    const grp = svgEl.select("#bg-" + a.id);
+    const dimmed = hasFilt && !activeFilters.has(a.category);
+    grp.classed("dimmed", dimmed);
+    // Also force opacity via style for SVG compatibility
+    grp.style("opacity", dimmed ? "0.08" : "1")
+       .style("pointer-events", dimmed ? "none" : "auto");
+  });
+}
+
+document.querySelectorAll(".legend-item").forEach(el => {
+  const col = el.dataset.color;
+  el.addEventListener("click", function() {
+    const cat = this.dataset.cat;
+    if (activeFilters.has(cat)) {
+      activeFilters.delete(cat);
+      this.classList.remove("active");
+      this.style.borderColor = "transparent";
+      this.style.background  = "";
+      this.style.color       = "";
+    } else {
+      activeFilters.add(cat);
+      this.classList.add("active");
+      this.style.borderColor = col;
+      this.style.background  = col + "18";
+      this.style.color       = col;
+    }
+    applyFilters();
+  });
+});
+
+render();
+window.addEventListener("resize", () => {
+  activeFilters.clear();
+  document.querySelectorAll(".legend-item").forEach(e => {
+    e.classList.remove("active");
+    e.style.borderColor = "transparent";
+    e.style.background  = "";
+    e.style.color       = "";
+  });
+  render();
+});
+</script>
+</body>
+</html>
